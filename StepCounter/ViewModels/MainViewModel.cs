@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Threading.Tasks;
+using StepCounter.Data;
 using StepCounter.Services;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
@@ -11,25 +11,20 @@ namespace StepCounter.ViewModels
 {
     public sealed class MainViewModel : ObservableObject
     {
-        const int HistoryDays = 7;
-
-        // Грубая оценка расхода энергии при ходьбе: ккал на кг веса на км.
-        const double KcalPerKgPerKm = 0.5;
+        /// <summary>Сколько дней назад можно пролистать.</summary>
+        const int DaysBack = AveragesViewModel.YearDays;
 
         readonly CoreDispatcher _dispatcher;
-        readonly DispatcherTimer _dayTimer;
+        readonly DispatcherTimer _clockTimer;
+        readonly DispatcherTimer _syncTimer;
 
+        StepDatabase _database;
         IStepSource _source;
         bool _initialized;
-        bool _isRefreshing;
-        DateTime _shownDay;
-        int _todaySteps;
+        bool _isSyncing;
+        DateTime _today;
+        int _selectedIndex;
 
-        string _todayStepsText = "0";
-        string _goalText;
-        double _progressValue;
-        string _distanceText;
-        string _caloriesText;
         string _sourceText = "Поиск датчиков…";
         string _statusText;
         bool _isAccessHintVisible;
@@ -37,41 +32,38 @@ namespace StepCounter.ViewModels
         public MainViewModel(CoreDispatcher dispatcher)
         {
             _dispatcher = dispatcher;
-            _dayTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
-            _dayTimer.Tick += OnDayTimerTick;
-            UpdateTodayTexts();
+
+            _clockTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+            _clockTimer.Tick += OnClockTick;
+
+            // Шаги приходят часто — синхронизируемся с базой не чаще раза в несколько секунд.
+            _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _syncTimer.Tick += OnSyncTimerTick;
+
+            _today = DateTime.Today;
+            for (int i = DaysBack - 1; i >= 0; i--)
+            {
+                Days.Add(new DayViewModel(_today.AddDays(-i), Averages));
+            }
+            _selectedIndex = Days.Count - 1;
         }
 
-        public ObservableCollection<DayStepsItem> History { get; } = new ObservableCollection<DayStepsItem>();
+        /// <summary>Дни от самого старого к сегодняшнему (сегодня — последний).</summary>
+        public ObservableCollection<DayViewModel> Days { get; } = new ObservableCollection<DayViewModel>();
 
-        public string TodayStepsText
-        {
-            get { return _todayStepsText; }
-            private set { SetProperty(ref _todayStepsText, value); }
-        }
+        public AveragesViewModel Averages { get; } = new AveragesViewModel();
 
-        public string GoalText
+        public int SelectedIndex
         {
-            get { return _goalText; }
-            private set { SetProperty(ref _goalText, value); }
-        }
-
-        public double ProgressValue
-        {
-            get { return _progressValue; }
-            private set { SetProperty(ref _progressValue, value); }
-        }
-
-        public string DistanceText
-        {
-            get { return _distanceText; }
-            private set { SetProperty(ref _distanceText, value); }
-        }
-
-        public string CaloriesText
-        {
-            get { return _caloriesText; }
-            private set { SetProperty(ref _caloriesText, value); }
+            get { return _selectedIndex; }
+            set
+            {
+                if (value < 0 || !SetProperty(ref _selectedIndex, value))
+                {
+                    return;
+                }
+                var ignored = LoadAroundSelectedAsync();
+            }
         }
 
         public string SourceText
@@ -92,7 +84,12 @@ namespace StepCounter.ViewModels
             private set { SetProperty(ref _isAccessHintVisible, value); }
         }
 
-        /// <summary>Выбирает источник шагов и загружает данные. Вызывается из UI-потока.</summary>
+        /// <summary>Сегодня выполнена норма шагов (аргумент — шаги). Вызывается в UI-потоке один раз за день.</summary>
+        public event EventHandler<int> GoalReached;
+
+        DayViewModel TodayItem => Days[Days.Count - 1];
+
+        /// <summary>Открывает базу, выбирает источник шагов и загружает данные. Вызывается из UI-потока.</summary>
         public async Task InitializeAsync()
         {
             if (_initialized)
@@ -101,7 +98,18 @@ namespace StepCounter.ViewModels
             }
             _initialized = true;
 
-            var hardware = new HardwarePedometerSource();
+            try
+            {
+                _database = await Task.Run(() => StepDatabase.Open());
+            }
+            catch (Exception ex)
+            {
+                SourceText = "Ошибка базы данных";
+                StatusText = ex.Message;
+                return;
+            }
+
+            var hardware = new HardwarePedometerSource(_database);
             if (await hardware.InitializeAsync())
             {
                 _source = hardware;
@@ -109,7 +117,7 @@ namespace StepCounter.ViewModels
             else
             {
                 IsAccessHintVisible = hardware.IsAccessDenied;
-                var accelerometer = new AccelerometerStepSource(new StepHistoryStore());
+                var accelerometer = new AccelerometerStepSource(_database);
                 if (await accelerometer.InitializeAsync())
                 {
                     _source = accelerometer;
@@ -119,64 +127,74 @@ namespace StepCounter.ViewModels
             if (_source == null)
             {
                 SourceText = "Датчики не найдены";
-                StatusText = "На этом устройстве нет ни шагомера, ни акселерометра.";
-                return;
+                StatusText = "На этом устройстве нет ни шагомера, ни акселерометра. Доступна только история.";
+            }
+            else
+            {
+                SourceText = _source.Name;
+                _source.StepsDetected += OnStepsDetected;
+                _source.Start();
             }
 
-            SourceText = "Источник: " + _source.Name;
-            _source.TodayStepsChanged += OnTodayStepsChanged;
-            _source.Start();
-            _dayTimer.Start();
-            await RefreshAsync();
+            _clockTimer.Start();
+            await SyncAndReloadAsync();
         }
 
-        /// <summary>Перечитывает историю и сегодняшние шаги. Вызывается из UI-потока.</summary>
-        public async Task RefreshAsync()
+        /// <summary>Забирает новые шаги из датчика и обновляет экран. Вызывается из UI-потока.</summary>
+        public async Task SyncAndReloadAsync()
         {
-            if (_source == null || _isRefreshing)
+            if (_database == null || _isSyncing)
             {
                 return;
             }
 
-            IReadOnlyList<DailySteps> history;
-            _isRefreshing = true;
+            _isSyncing = true;
             try
             {
-                history = await _source.GetHistoryAsync(HistoryDays);
+                if (_source != null)
+                {
+                    await _source.SyncAsync();
+                    StatusText = null;
+                }
             }
             catch (Exception ex)
             {
-                StatusText = "Не удалось прочитать данные: " + ex.Message;
-                return;
+                StatusText = "Не удалось прочитать данные датчика: " + ex.Message;
             }
             finally
             {
-                _isRefreshing = false;
+                _isSyncing = false;
             }
 
-            StatusText = null;
-            _shownDay = DateTime.Today;
+            await LoadDayAsync(TodayItem);
+            await LoadAroundSelectedAsync();
+            await LoadAveragesAsync();
+            CheckGoal();
+        }
 
-            int goal = AppSettings.DailyGoal;
-            History.Clear();
-            // Новые дни сверху.
-            for (int i = history.Count - 1; i >= 0; i--)
-            {
-                History.Add(new DayStepsItem(history[i].Date, history[i].Steps, goal));
-            }
+        public void GoToToday()
+        {
+            Select(Days.Count - 1);
+        }
 
-            SetTodaySteps(history.Count > 0 ? history[history.Count - 1].Steps : 0);
+        /// <summary>Выбирает день, даже если индекс в модели уже такой (FlipView мог разойтись с моделью).</summary>
+        void Select(int index)
+        {
+            _selectedIndex = -1;
+            SelectedIndex = index;
         }
 
         /// <summary>Пересчитать отображение после изменения настроек.</summary>
-        public void ApplySettings()
+        public async Task ApplySettingsAsync()
         {
-            int goal = AppSettings.DailyGoal;
-            foreach (DayStepsItem item in History)
+            foreach (DayViewModel day in Days)
             {
-                item.Goal = goal;
+                day.IsLoaded = false;
             }
-            UpdateTodayTexts();
+            await LoadDayAsync(TodayItem);
+            await LoadAroundSelectedAsync();
+            await LoadAveragesAsync();
+            CheckGoal();
         }
 
         /// <summary>Приложение приостанавливается. Можно вызывать из любого потока.</summary>
@@ -190,59 +208,160 @@ namespace StepCounter.ViewModels
         {
             var ignored = _dispatcher.RunAsync(CoreDispatcherPriority.Normal, async () =>
             {
-                if (_source == null)
-                {
-                    return;
-                }
-                _source.Start();
-                await RefreshAsync();
+                _source?.Start();
+                CheckDateChanged();
+                await SyncAndReloadAsync();
             });
         }
 
-        void OnTodayStepsChanged(object sender, int steps)
+        void OnStepsDetected(object sender, EventArgs e)
         {
             var ignored = _dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
             {
-                if (DateTime.Today != _shownDay)
+                if (!_syncTimer.IsEnabled)
                 {
-                    // Наступил новый день — список истории устарел.
-                    var ignoredRefresh = RefreshAsync();
-                    return;
+                    _syncTimer.Start();
                 }
-                SetTodaySteps(steps);
             });
         }
 
-        async void OnDayTimerTick(object sender, object e)
+        async void OnSyncTimerTick(object sender, object e)
         {
-            if (DateTime.Today != _shownDay)
+            _syncTimer.Stop();
+            CheckDateChanged();
+            await SyncAndReloadAsync();
+        }
+
+        async void OnClockTick(object sender, object e)
+        {
+            // Раз в минуту: смена дня, запись завершённых отрезков, обновление «сегодня».
+            CheckDateChanged();
+            await SyncAndReloadAsync();
+        }
+
+        /// <summary>После полуночи добавляет новый день в конец списка.</summary>
+        bool CheckDateChanged()
+        {
+            DateTime today = DateTime.Today;
+            if (today == _today)
             {
-                await RefreshAsync();
+                return false;
+            }
+
+            bool wasOnToday = _selectedIndex == Days.Count - 1;
+            DateTime selectedDate = _selectedIndex >= 0 && _selectedIndex < Days.Count
+                ? Days[_selectedIndex].Date
+                : _today;
+
+            // FlipView сам сдвигает выбранный индекс при удалении элементов,
+            // поэтому после изменений выбираем день заново по дате.
+            for (DateTime date = _today.AddDays(1); date <= today; date = date.AddDays(1))
+            {
+                Days.Add(new DayViewModel(date, Averages));
+                Days.RemoveAt(0);
+            }
+            _today = today;
+
+            // Подписи «сегодня»/«вчера» поменялись — перечитать всё.
+            foreach (DayViewModel day in Days)
+            {
+                day.IsLoaded = false;
+            }
+
+            int index = Days.Count - 1;
+            if (!wasOnToday)
+            {
+                for (int i = 0; i < Days.Count; i++)
+                {
+                    if (Days[i].Date == selectedDate)
+                    {
+                        index = i;
+                        break;
+                    }
+                }
+            }
+            Select(index);
+            return true;
+        }
+
+        async Task LoadAroundSelectedAsync()
+        {
+            int index = _selectedIndex;
+            // Загружаем и соседние дни, чтобы при свайпе они были готовы.
+            for (int i = index - 1; i <= index + 1; i++)
+            {
+                if (i >= 0 && i < Days.Count && !Days[i].IsLoaded)
+                {
+                    await LoadDayAsync(Days[i]);
+                }
             }
         }
 
-        void SetTodaySteps(int steps)
+        async Task LoadDayAsync(DayViewModel day)
         {
-            _todaySteps = steps;
-            if (History.Count > 0 && History[0].Date == DateTime.Today)
+            if (_database == null)
             {
-                History[0].Steps = steps;
+                return;
             }
-            UpdateTodayTexts();
+
+            int key = day.Key;
+            DaySummary summary = null;
+            List<ActivitySegment> segments = null;
+            try
+            {
+                await Task.Run(() =>
+                {
+                    summary = _database.GetDay(key);
+                    segments = _database.GetSegments(key);
+                });
+            }
+            catch (Exception ex)
+            {
+                StatusText = "Ошибка чтения базы: " + ex.Message;
+                return;
+            }
+
+            int pending = day.IsToday && _source != null ? _source.PendingStepsToday : 0;
+            day.Apply(summary, segments, pending);
         }
 
-        void UpdateTodayTexts()
+        async Task LoadAveragesAsync()
         {
-            CultureInfo culture = CultureInfo.CurrentCulture;
+            if (_database == null)
+            {
+                return;
+            }
+
+            DateTime today = DateTime.Today;
+            int fromDay = DayKey.From(today.AddDays(-AveragesViewModel.YearDays));
+            int toDay = DayKey.From(today.AddDays(-1));
+            try
+            {
+                List<DaySummary> days = await Task.Run(() => _database.GetDays(fromDay, toDay));
+                Averages.Apply(days, today);
+            }
+            catch (Exception ex)
+            {
+                StatusText = "Ошибка чтения базы: " + ex.Message;
+            }
+        }
+
+        void CheckGoal()
+        {
+            DayViewModel today = TodayItem;
             int goal = AppSettings.DailyGoal;
-            double km = _todaySteps * AppSettings.StepLengthCm / 100000.0;
-            double kcal = km * AppSettings.WeightKg * KcalPerKgPerKm;
+            if (!today.IsLoaded || today.TotalSteps < goal)
+            {
+                return;
+            }
 
-            TodayStepsText = _todaySteps.ToString("N0", culture);
-            GoalText = string.Format(culture, "из {0:N0} шагов", goal);
-            ProgressValue = goal > 0 ? Math.Min(100.0, 100.0 * _todaySteps / goal) : 0;
-            DistanceText = string.Format(culture, "{0:0.00} км", km);
-            CaloriesText = string.Format(culture, "{0:0} ккал", kcal);
+            if (AppSettings.LastCelebratedDay == today.Key)
+            {
+                return;
+            }
+
+            AppSettings.LastCelebratedDay = today.Key;
+            GoalReached?.Invoke(this, today.TotalSteps);
         }
     }
 }

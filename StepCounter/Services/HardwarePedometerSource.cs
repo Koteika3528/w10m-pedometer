@@ -2,37 +2,57 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using StepCounter.Data;
 using Windows.Devices.Enumeration;
 using Windows.Devices.Sensors;
 using Windows.Foundation.Metadata;
+using Windows.Storage;
 
 namespace StepCounter.Services
 {
     /// <summary>
     /// Встроенный шагомер (Windows.Devices.Sensors.Pedometer). Система считает шаги
-    /// в фоне сама, поэтому история доступна, даже если приложение было закрыто.
+    /// в фоне сама; приложение забирает накопленную системную историю
+    /// и переносит её в свою базу, чтобы хранить данные дольше.
     /// </summary>
     public sealed class HardwarePedometerSource : IStepSource
     {
         // Класс устройств «датчик активности»: по нему проверяется разрешение «Движение».
         static readonly Guid ActivitySensorClassId = new Guid("9D9E0118-1807-4F2E-96E4-2CE57142E196");
 
+        // При самом первом запуске забираем историю за этот период (сколько система хранит).
+        const int FirstSyncDays = 30;
+
+        const string StateKey = "PedometerState";
+
+        static readonly PedometerStepKind[] StepKinds =
+        {
+            PedometerStepKind.Unknown, PedometerStepKind.Walking, PedometerStepKind.Running,
+        };
+
+        readonly StepDatabase _database;
         readonly object _lock = new object();
 
-        // Последнее известное накопленное значение для каждого вида шагов (ходьба, бег, ...).
-        Dictionary<PedometerStepKind, int> _lastCumulative = new Dictionary<PedometerStepKind, int>();
+        // Последнее учтённое показание для каждого вида шагов (ходьба, бег, ...).
+        readonly Dictionary<PedometerStepKind, Baseline> _baselines = new Dictionary<PedometerStepKind, Baseline>();
+        DateTimeOffset _lastTimestamp = DateTimeOffset.MinValue;
 
         Pedometer _pedometer;
         bool _running;
-        DateTime _day;
-        int _todaySteps;
+
+        public HardwarePedometerSource(StepDatabase database)
+        {
+            _database = database;
+        }
 
         public string Name => "Встроенный шагомер";
+
+        public int PendingStepsToday => 0;
 
         /// <summary>Пользователь запретил доступ к данным о движении.</summary>
         public bool IsAccessDenied { get; private set; }
 
-        public event EventHandler<int> TodayStepsChanged;
+        public event EventHandler StepsDetected;
 
         public async Task<bool> InitializeAsync()
         {
@@ -70,48 +90,48 @@ namespace StepCounter.Services
                 return false;
             }
 
-            return _pedometer != null;
+            if (_pedometer == null)
+            {
+                return false;
+            }
+
+            LoadState();
+            return true;
         }
 
-        public async Task<IReadOnlyList<DailySteps>> GetHistoryAsync(int days)
+        public async Task SyncAsync()
         {
-            DateTime today = DateTime.Today;
-            DateTime firstDay = today.AddDays(-(days - 1));
-
-            // Берём показания с запасом в сутки, чтобы у первого показания периода
-            // было предыдущее значение и шаги считались с начала дня.
-            IReadOnlyList<PedometerReading> readings =
-                await Pedometer.GetSystemHistoryAsync(new DateTimeOffset(firstDay.AddDays(-1)));
-
-            var totals = new int[days];
-            var lastCumulative = new Dictionary<PedometerStepKind, int>();
-            foreach (PedometerReading reading in readings.OrderBy(r => r.Timestamp))
-            {
-                int previous;
-                if (lastCumulative.TryGetValue(reading.StepKind, out previous))
-                {
-                    int index = (int)(reading.Timestamp.LocalDateTime.Date - firstDay).TotalDays;
-                    if (index >= 0 && index < days)
-                    {
-                        totals[index] += Delta(previous, reading.CumulativeSteps);
-                    }
-                }
-                lastCumulative[reading.StepKind] = reading.CumulativeSteps;
-            }
-
+            DateTimeOffset from;
             lock (_lock)
             {
-                _day = today;
-                _todaySteps = totals[days - 1];
-                _lastCumulative = lastCumulative;
+                from = _lastTimestamp == DateTimeOffset.MinValue
+                    ? DateTimeOffset.Now.AddDays(-FirstSyncDays)
+                    : _lastTimestamp;
             }
 
-            var result = new List<DailySteps>(days);
-            for (int i = 0; i < days; i++)
+            IReadOnlyList<PedometerReading> readings = await Pedometer.GetSystemHistoryAsync(from);
+
+            var segments = new List<ActivitySegment>();
+            lock (_lock)
             {
-                result.Add(new DailySteps(firstDay.AddDays(i), totals[i]));
+                foreach (PedometerReading reading in readings.OrderBy(r => r.Timestamp))
+                {
+                    ActivitySegment segment = Process(reading);
+                    if (segment != null)
+                    {
+                        segments.Add(segment);
+                    }
+                }
             }
-            return result;
+
+            await Task.Run(() =>
+            {
+                _database.AddSegments(segments);
+                lock (_lock)
+                {
+                    SaveState();
+                }
+            });
         }
 
         public void Start()
@@ -138,33 +158,136 @@ namespace StepCounter.Services
 
         void OnReadingChanged(Pedometer sender, PedometerReadingChangedEventArgs args)
         {
-            PedometerReading reading = args.Reading;
-            int total;
+            ActivitySegment segment;
             lock (_lock)
             {
-                DateTime today = DateTime.Today;
-                if (today != _day)
-                {
-                    _day = today;
-                    _todaySteps = 0;
-                }
-
-                int previous;
-                if (_lastCumulative.TryGetValue(reading.StepKind, out previous))
-                {
-                    _todaySteps += Delta(previous, reading.CumulativeSteps);
-                }
-                _lastCumulative[reading.StepKind] = reading.CumulativeSteps;
-                total = _todaySteps;
+                segment = Process(args.Reading);
             }
 
-            TodayStepsChanged?.Invoke(this, total);
+            if (segment != null)
+            {
+                _database.AddSegments(new[] { segment });
+                lock (_lock)
+                {
+                    SaveState();
+                }
+                StepsDetected?.Invoke(this, EventArgs.Empty);
+            }
         }
 
-        static int Delta(int previous, int current)
+        // Превращает очередное накопленное показание в отрезок активности. Вызывать под _lock.
+        ActivitySegment Process(PedometerReading reading)
         {
+            if (reading.Timestamp <= _lastTimestamp)
+            {
+                return null; // Уже учтено.
+            }
+            _lastTimestamp = reading.Timestamp;
+
+            var current = new Baseline(reading.CumulativeSteps, reading.CumulativeStepsDuration, reading.Timestamp);
+            Baseline previous;
+            bool hasPrevious = _baselines.TryGetValue(reading.StepKind, out previous);
+            _baselines[reading.StepKind] = current;
+            if (!hasPrevious)
+            {
+                return null;
+            }
+
             // Если счётчик уменьшился, значит он был сброшен (например, после перезагрузки).
-            return current >= previous ? current - previous : current;
+            bool reset = current.Steps < previous.Steps;
+            int steps = reset ? current.Steps : current.Steps - previous.Steps;
+            if (steps <= 0)
+            {
+                return null;
+            }
+
+            TimeSpan span = current.Timestamp - previous.Timestamp;
+            TimeSpan active = reset || current.Duration < previous.Duration
+                ? current.Duration
+                : current.Duration - previous.Duration;
+            if (active <= TimeSpan.Zero)
+            {
+                active = TimeSpan.FromTicks(steps * TimeSpan.FromMilliseconds(500).Ticks);
+            }
+            if (active > span && span > TimeSpan.Zero)
+            {
+                active = span;
+            }
+
+            return ActivitySegment.Create(
+                reading.Timestamp, active, steps,
+                reading.StepKind == PedometerStepKind.Running,
+                ActivitySegment.SourcePedometer);
+        }
+
+        void LoadState()
+        {
+            object value;
+            if (!ApplicationData.Current.LocalSettings.Values.TryGetValue(StateKey, out value))
+            {
+                return;
+            }
+
+            var state = value as ApplicationDataCompositeValue;
+            if (state == null)
+            {
+                return;
+            }
+
+            lock (_lock)
+            {
+                object last;
+                if (state.TryGetValue("last", out last) && last is long)
+                {
+                    _lastTimestamp = new DateTimeOffset((long)last, TimeSpan.Zero);
+                }
+
+                foreach (PedometerStepKind kind in StepKinds)
+                {
+                    string prefix = ((int)kind).ToString();
+                    object steps, duration, timestamp;
+                    if (state.TryGetValue(prefix + "s", out steps) && steps is int
+                        && state.TryGetValue(prefix + "d", out duration) && duration is long
+                        && state.TryGetValue(prefix + "t", out timestamp) && timestamp is long)
+                    {
+                        _baselines[kind] = new Baseline(
+                            (int)steps,
+                            TimeSpan.FromTicks((long)duration),
+                            new DateTimeOffset((long)timestamp, TimeSpan.Zero));
+                    }
+                }
+            }
+        }
+
+        // Вызывать под _lock.
+        void SaveState()
+        {
+            var state = new ApplicationDataCompositeValue();
+            state["last"] = _lastTimestamp.UtcTicks;
+            foreach (KeyValuePair<PedometerStepKind, Baseline> pair in _baselines)
+            {
+                string prefix = ((int)pair.Key).ToString();
+                state[prefix + "s"] = pair.Value.Steps;
+                state[prefix + "d"] = pair.Value.Duration.Ticks;
+                state[prefix + "t"] = pair.Value.Timestamp.UtcTicks;
+            }
+            ApplicationData.Current.LocalSettings.Values[StateKey] = state;
+        }
+
+        struct Baseline
+        {
+            public Baseline(int steps, TimeSpan duration, DateTimeOffset timestamp)
+            {
+                Steps = steps;
+                Duration = duration;
+                Timestamp = timestamp;
+            }
+
+            public int Steps { get; }
+
+            public TimeSpan Duration { get; }
+
+            public DateTimeOffset Timestamp { get; }
         }
     }
 }

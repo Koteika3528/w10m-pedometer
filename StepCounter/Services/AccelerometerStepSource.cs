@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
+using StepCounter.Data;
 using Windows.Devices.Sensors;
 
 namespace StepCounter.Services
@@ -8,64 +8,74 @@ namespace StepCounter.Services
     /// <summary>
     /// Запасной источник для телефонов без встроенного шагомера:
     /// шаги считаются по акселерометру, пока приложение открыто.
+    /// Шаги собираются в отрезки (не длиннее минуты и не через границу часа)
+    /// и по завершении отрезка записываются в базу.
     /// </summary>
     public sealed class AccelerometerStepSource : IStepSource
     {
         const uint DesiredReportIntervalMs = 20;
-        const int SaveEverySteps = 20;
 
-        readonly StepHistoryStore _store;
+        // Темп (шагов в секунду), начиная с которого считаем, что человек бежит.
+        const double RunningCadence = 2.6;
+
+        static readonly TimeSpan MaxGap = TimeSpan.FromSeconds(2);
+        static readonly TimeSpan MaxSegment = TimeSpan.FromSeconds(60);
+        static readonly TimeSpan TypicalStep = TimeSpan.FromMilliseconds(500);
+
+        readonly StepDatabase _database;
         readonly StepDetector _detector = new StepDetector();
         readonly object _lock = new object();
 
         Accelerometer _accelerometer;
         bool _running;
-        DateTime _day;
-        int _todaySteps;
-        int _unsavedSteps;
 
-        public AccelerometerStepSource(StepHistoryStore store)
+        bool _hasSegment;
+        DateTimeOffset _segmentStart;
+        DateTimeOffset _segmentLastStep;
+        int _segmentSteps;
+
+        public AccelerometerStepSource(StepDatabase database)
         {
-            _store = store;
+            _database = database;
         }
 
         public string Name => "Акселерометр (считает, только пока приложение открыто)";
 
-        public event EventHandler<int> TodayStepsChanged;
+        public int PendingStepsToday
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _hasSegment && _segmentStart.LocalDateTime.Date == DateTime.Today ? _segmentSteps : 0;
+                }
+            }
+        }
+
+        public event EventHandler StepsDetected;
 
         public Task<bool> InitializeAsync()
         {
             _accelerometer = Accelerometer.GetDefault();
-            if (_accelerometer == null)
-            {
-                return Task.FromResult(false);
-            }
-
-            lock (_lock)
-            {
-                _day = DateTime.Today;
-                _todaySteps = _store.Get(_day);
-            }
-            return Task.FromResult(true);
+            return Task.FromResult(_accelerometer != null);
         }
 
-        public Task<IReadOnlyList<DailySteps>> GetHistoryAsync(int days)
+        public Task SyncAsync()
         {
-            var result = new List<DailySteps>(days);
+            ActivitySegment finished = null;
             lock (_lock)
             {
-                RollDayIfNeeded();
-                Save();
-
-                DateTime today = DateTime.Today;
-                for (int i = days - 1; i > 0; i--)
+                if (_hasSegment && DateTimeOffset.Now - _segmentLastStep > MaxGap)
                 {
-                    DateTime date = today.AddDays(-i);
-                    result.Add(new DailySteps(date, _store.Get(date)));
+                    finished = CloseSegment();
                 }
-                result.Add(new DailySteps(today, _todaySteps));
             }
-            return Task.FromResult<IReadOnlyList<DailySteps>>(result);
+
+            if (finished == null)
+            {
+                return Task.CompletedTask;
+            }
+            return Task.Run(() => _database.AddSegments(new[] { finished }));
         }
 
         public void Start()
@@ -93,9 +103,17 @@ namespace StepCounter.Services
             // 0 — вернуть интервал по умолчанию, чтобы не тратить батарею.
             _accelerometer.ReportInterval = 0;
 
+            ActivitySegment finished = null;
             lock (_lock)
             {
-                Save();
+                if (_hasSegment)
+                {
+                    finished = CloseSegment();
+                }
+            }
+            if (finished != null)
+            {
+                _database.AddSegments(new[] { finished });
             }
         }
 
@@ -109,46 +127,58 @@ namespace StepCounter.Services
                 return;
             }
 
-            int total;
+            DateTimeOffset now = reading.Timestamp;
+            ActivitySegment finished = null;
             lock (_lock)
             {
-                RollDayIfNeeded();
-                _todaySteps += newSteps;
-                _unsavedSteps += newSteps;
-                if (_unsavedSteps >= SaveEverySteps)
+                if (_hasSegment && NeedsNewSegment(now))
                 {
-                    Save();
+                    finished = CloseSegment();
                 }
-                total = _todaySteps;
+
+                if (_hasSegment)
+                {
+                    _segmentLastStep = now;
+                    _segmentSteps += newSteps;
+                }
+                else
+                {
+                    // Детектор может подтвердить сразу несколько шагов, сделанных чуть раньше.
+                    _hasSegment = true;
+                    _segmentStart = now - TimeSpan.FromTicks(TypicalStep.Ticks * (newSteps - 1));
+                    _segmentLastStep = now;
+                    _segmentSteps = newSteps;
+                }
             }
 
-            TodayStepsChanged?.Invoke(this, total);
+            if (finished != null)
+            {
+                _database.AddSegments(new[] { finished });
+            }
+            StepsDetected?.Invoke(this, EventArgs.Empty);
         }
 
         // Вызывать под _lock.
-        void RollDayIfNeeded()
+        bool NeedsNewSegment(DateTimeOffset now)
         {
-            DateTime today = DateTime.Today;
-            if (today == _day)
+            if (now - _segmentLastStep > MaxGap || now - _segmentStart > MaxSegment)
             {
-                return;
+                return true;
             }
 
-            Save();
-            _day = today;
-            _todaySteps = _store.Get(today);
+            DateTime start = _segmentStart.LocalDateTime;
+            DateTime current = now.LocalDateTime;
+            return start.Date != current.Date || start.Hour != current.Hour;
         }
 
         // Вызывать под _lock.
-        void Save()
+        ActivitySegment CloseSegment()
         {
-            if (_unsavedSteps == 0)
-            {
-                return;
-            }
-
-            _store.Set(_day, _todaySteps);
-            _unsavedSteps = 0;
+            TimeSpan active = _segmentLastStep - _segmentStart + TypicalStep;
+            double cadence = _segmentSteps / active.TotalSeconds;
+            _hasSegment = false;
+            return ActivitySegment.Create(
+                _segmentLastStep, active, _segmentSteps, cadence >= RunningCadence, ActivitySegment.SourceAccelerometer);
         }
     }
 }

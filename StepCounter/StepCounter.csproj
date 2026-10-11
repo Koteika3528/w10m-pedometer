@@ -11,8 +11,8 @@
     <AssemblyName>StepCounter</AssemblyName>
     <DefaultLanguage>ru-RU</DefaultLanguage>
     <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
-    <TargetPlatformVersion>10.0.15063.0</TargetPlatformVersion>
-    <TargetPlatformMinVersion>10.0.10586.0</TargetPlatformMinVersion>
+    <TargetPlatformVersion>10.0.16299.0</TargetPlatformVersion>
+    <TargetPlatformMinVersion>10.0.15063.0</TargetPlatformMinVersion>
     <MinimumVisualStudioVersion>14</MinimumVisualStudioVersion>
     <FileAlignment>512</FileAlignment>
     <ProjectTypeGuids>{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
@@ -90,18 +90,28 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="App.xaml.cs" />
+    <Compile Include="Controls\HourlyChart.cs" />
     <Compile Include="Converters\BoolToVisibilityConverter.cs" />
+    <Compile Include="Data\ActivitySegment.cs" />
+    <Compile Include="Data\DayKey.cs" />
+    <Compile Include="Data\DaySummary.cs" />
+    <Compile Include="Data\StepDatabase.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Services\AccelerometerStepSource.cs" />
+    <Compile Include="Services\ActivityMath.cs" />
     <Compile Include="Services\AppSettings.cs" />
-    <Compile Include="Services\DailySteps.cs" />
     <Compile Include="Services\HardwarePedometerSource.cs" />
     <Compile Include="Services\IStepSource.cs" />
+    <Compile Include="Services\Motivation.cs" />
     <Compile Include="Services\StepDetector.cs" />
-    <Compile Include="Services\StepHistoryStore.cs" />
-    <Compile Include="ViewModels\DayStepsItem.cs" />
+    <Compile Include="ViewModels\AveragesViewModel.cs" />
+    <Compile Include="ViewModels\DayViewModel.cs" />
+    <Compile Include="ViewModels\HourBar.cs" />
     <Compile Include="ViewModels\MainViewModel.cs" />
     <Compile Include="ViewModels\ObservableObject.cs" />
+    <Compile Include="Controls\CelebrationOverlay.xaml.cs">
+      <DependentUpon>CelebrationOverlay.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Views\MainPage.xaml.cs">
       <DependentUpon>MainPage.xaml</DependentUpon>
     </Compile>
@@ -129,6 +139,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Page Include="Controls\CelebrationOverlay.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="Views\MainPage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -142,6 +156,16 @@
     <PackageReference Include="Microsoft.NETCore.UniversalWindowsPlatform">
       <Version>5.4.7</Version>
     </PackageReference>
+    <!-- SQLite: версия 1.5 работает без .NET Standard 2.0, которого нет на Windows 10 Mobile -->
+    <PackageReference Include="sqlite-net-pcl">
+      <Version>1.5.231</Version>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Нативная SQLite (e_sqlite3) собрана с VC++ 2015 Runtime -->
+    <SDKReference Include="Microsoft.VCLibs, Version=14.0">
+      <Name>Visual C++ 2015 Runtime for Universal Windows Platform Apps</Name>
+    </SDKReference>
   </ItemGroup>
   <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '14.0' ">
     <VisualStudioVersion>14.0</VisualStudioVersion>

@@ -27,6 +27,13 @@ namespace StepCounter.Services
             set => Set(nameof(WeightKg), value);
         }
 
+        /// <summary>День (yyyyMMdd), за который уже показали поздравление.</summary>
+        public static int LastCelebratedDay
+        {
+            get => Get(nameof(LastCelebratedDay), 0);
+            set => Set(nameof(LastCelebratedDay), value);
+        }
+
         static int Get(string key, int defaultValue)
         {
             object value;

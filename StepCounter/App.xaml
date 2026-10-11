@@ -6,5 +6,11 @@
 
     <Application.Resources>
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+
+        <!-- Цвета диаграммы: синий — шаги, оранжевый — ккал -->
+        <Color x:Key="StepsColor">#FF1E88E5</Color>
+        <Color x:Key="KcalColor">#FFFF9800</Color>
+        <SolidColorBrush x:Key="StepsBrush" Color="{StaticResource StepsColor}" />
+        <SolidColorBrush x:Key="KcalBrush" Color="{StaticResource KcalColor}" />
     </Application.Resources>
 </Application>

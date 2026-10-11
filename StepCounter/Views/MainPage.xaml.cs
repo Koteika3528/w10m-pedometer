@@ -7,10 +7,13 @@ namespace StepCounter.Views
 {
     public sealed partial class MainPage : Page
     {
+        bool _flipViewShown;
+
         public MainPage()
         {
             InitializeComponent();
             NavigationCacheMode = NavigationCacheMode.Required;
+            ViewModel.GoalReached += OnGoalReached;
         }
 
         public MainViewModel ViewModel => App.ViewModel;
@@ -21,17 +24,37 @@ namespace StepCounter.Views
 
             if (e.NavigationMode == NavigationMode.Back)
             {
-                // Вернулись из настроек — цель или длина шага могли измениться.
-                ViewModel.ApplySettings();
+                // Вернулись из настроек — цель, длина шага или вес могли измениться.
+                await ViewModel.ApplySettingsAsync();
                 return;
             }
 
             await ViewModel.InitializeAsync();
         }
 
+        void OnFlipViewLoaded(object sender, RoutedEventArgs e)
+        {
+            // При загрузке FlipView выбирает первый элемент — при первом показе открываем «сегодня».
+            if (!_flipViewShown)
+            {
+                _flipViewShown = true;
+                ViewModel.GoToToday();
+            }
+        }
+
+        void OnGoalReached(object sender, int steps)
+        {
+            Celebration.Show(steps);
+        }
+
+        void OnTodayClick(object sender, RoutedEventArgs e)
+        {
+            ViewModel.GoToToday();
+        }
+
         async void OnRefreshClick(object sender, RoutedEventArgs e)
         {
-            await ViewModel.RefreshAsync();
+            await ViewModel.SyncAndReloadAsync();
         }
 
         void OnSettingsClick(object sender, RoutedEventArgs e)
