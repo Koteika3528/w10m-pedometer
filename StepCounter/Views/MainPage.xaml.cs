@@ -57,6 +57,11 @@ namespace StepCounter.Views
             await ViewModel.SyncAndReloadAsync();
         }
 
+        void OnStatisticsClick(object sender, RoutedEventArgs e)
+        {
+            Frame.Navigate(typeof(StatisticsPage));
+        }
+
         void OnSettingsClick(object sender, RoutedEventArgs e)
         {
             Frame.Navigate(typeof(SettingsPage));

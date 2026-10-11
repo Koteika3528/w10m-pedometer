@@ -10,7 +10,7 @@ namespace StepCounter.ViewModels
     /// <summary>Одна страница FlipView — итоги одного дня.</summary>
     public sealed class DayViewModel : ObservableObject
     {
-        static readonly IReadOnlyList<HourBar> NoBars = new HourBar[0];
+        static readonly IReadOnlyList<ChartBar> NoBars = new ChartBar[0];
 
         bool _isLoaded;
         bool _hasData;
@@ -25,12 +25,11 @@ namespace StepCounter.ViewModels
         string _workoutsText = "0";
         string _workoutsLabel = "тренировок";
         string _activeTimeText = "0 мин";
-        IReadOnlyList<HourBar> _hourly = NoBars;
+        IReadOnlyList<ChartBar> _hourly = NoBars;
 
-        public DayViewModel(DateTime date, AveragesViewModel averages)
+        public DayViewModel(DateTime date)
         {
             Date = date.Date;
-            Averages = averages;
         }
 
         public DateTime Date { get; }
@@ -38,9 +37,6 @@ namespace StepCounter.ViewModels
         public int Key => DayKey.From(Date);
 
         public bool IsToday => Date == DateTime.Today;
-
-        /// <summary>Общие для всех страниц средние значения.</summary>
-        public AveragesViewModel Averages { get; }
 
         public string Title
         {
@@ -78,7 +74,7 @@ namespace StepCounter.ViewModels
         public string WorkoutsText { get { return _workoutsText; } private set { SetProperty(ref _workoutsText, value); } }
         public string WorkoutsLabel { get { return _workoutsLabel; } private set { SetProperty(ref _workoutsLabel, value); } }
         public string ActiveTimeText { get { return _activeTimeText; } private set { SetProperty(ref _activeTimeText, value); } }
-        public IReadOnlyList<HourBar> Hourly { get { return _hourly; } private set { SetProperty(ref _hourly, value); } }
+        public IReadOnlyList<ChartBar> Hourly { get { return _hourly; } private set { SetProperty(ref _hourly, value); } }
 
         /// <summary>Шаги за день вместе с ещё не сохранёнными (для поздравления).</summary>
         public int TotalSteps { get; private set; }
@@ -126,7 +122,7 @@ namespace StepCounter.ViewModels
             HasData = true;
         }
 
-        static IReadOnlyList<HourBar> BuildHourly(IList<ActivitySegment> segments, int pendingSteps)
+        static IReadOnlyList<ChartBar> BuildHourly(IList<ActivitySegment> segments, int pendingSteps)
         {
             var walking = new int[24];
             var running = new int[24];
@@ -143,11 +139,12 @@ namespace StepCounter.ViewModels
             }
             walking[DateTime.Now.Hour] += pendingSteps;
 
-            var bars = new HourBar[24];
+            var bars = new ChartBar[24];
             for (int hour = 0; hour < 24; hour++)
             {
-                bars[hour] = new HourBar(
-                    hour, walking[hour] + running[hour], ActivityMath.Kcal(walking[hour], running[hour]));
+                string label = hour % 6 == 0 ? hour.ToString("00") + ":00" : null;
+                bars[hour] = new ChartBar(
+                    label, walking[hour] + running[hour], ActivityMath.Kcal(walking[hour], running[hour]));
             }
             return bars;
         }

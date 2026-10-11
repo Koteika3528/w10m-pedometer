@@ -18,6 +18,11 @@
     <Page.BottomAppBar>
         <CommandBar>
             <AppBarButton Icon="GoToToday" Label="сегодня" Click="OnTodayClick" />
+            <AppBarButton Label="статистика" Click="OnStatisticsClick">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE9D2;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
             <AppBarButton Icon="Refresh" Label="обновить" Click="OnRefreshClick" />
             <AppBarButton Icon="Setting" Label="настройки" Click="OnSettingsClick" />
         </CommandBar>
@@ -156,48 +161,8 @@
                                         <TextBlock Text="ккал" Style="{StaticResource CaptionMutedStyle}" />
                                     </StackPanel>
                                 </Grid>
-                                <controls:HourlyChart Bars="{x:Bind Hourly, Mode=OneWay}" Height="120" />
+                                <controls:BarChart Bars="{x:Bind Hourly, Mode=OneWay}" Height="120" />
 
-                                <!-- Средние значения -->
-                                <TextBlock Text="в среднем за день"
-                                           Style="{StaticResource BaseTextBlockStyle}"
-                                           Margin="0,20,0,0" />
-                                <TextBlock Text="по прошедшим дням, где есть данные"
-                                           Style="{StaticResource CaptionMutedStyle}"
-                                           Margin="0,0,0,6" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-
-                                    <TextBlock Grid.Column="0" Text="неделя" Style="{StaticResource CaptionMutedStyle}" />
-                                    <TextBlock Grid.Column="1" Text="месяц" Style="{StaticResource CaptionMutedStyle}" />
-                                    <TextBlock Grid.Column="2" Text="год" Style="{StaticResource CaptionMutedStyle}" />
-
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="{x:Bind Averages.WeekSteps, Mode=OneWay}"
-                                               Style="{StaticResource BodyTextBlockStyle}" Foreground="{StaticResource StepsBrush}" />
-                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind Averages.MonthSteps, Mode=OneWay}"
-                                               Style="{StaticResource BodyTextBlockStyle}" Foreground="{StaticResource StepsBrush}" />
-                                    <TextBlock Grid.Row="1" Grid.Column="2" Text="{x:Bind Averages.YearSteps, Mode=OneWay}"
-                                               Style="{StaticResource BodyTextBlockStyle}" Foreground="{StaticResource StepsBrush}" />
-
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Style="{StaticResource BodyTextBlockStyle}" Foreground="{StaticResource KcalBrush}">
-                                        <Run Text="{x:Bind Averages.WeekKcal, Mode=OneWay}" /> ккал
-                                    </TextBlock>
-                                    <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource BodyTextBlockStyle}" Foreground="{StaticResource KcalBrush}">
-                                        <Run Text="{x:Bind Averages.MonthKcal, Mode=OneWay}" /> ккал
-                                    </TextBlock>
-                                    <TextBlock Grid.Row="2" Grid.Column="2" Style="{StaticResource BodyTextBlockStyle}" Foreground="{StaticResource KcalBrush}">
-                                        <Run Text="{x:Bind Averages.YearKcal, Mode=OneWay}" /> ккал
-                                    </TextBlock>
-                                </Grid>
                             </StackPanel>
                         </StackPanel>
                     </ScrollViewer>

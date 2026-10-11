@@ -12,7 +12,7 @@ namespace StepCounter.ViewModels
     public sealed class MainViewModel : ObservableObject
     {
         /// <summary>Сколько дней назад можно пролистать.</summary>
-        const int DaysBack = AveragesViewModel.YearDays;
+        const int DaysBack = 365;
 
         readonly CoreDispatcher _dispatcher;
         readonly DispatcherTimer _clockTimer;
@@ -43,7 +43,7 @@ namespace StepCounter.ViewModels
             _today = DateTime.Today;
             for (int i = DaysBack - 1; i >= 0; i--)
             {
-                Days.Add(new DayViewModel(_today.AddDays(-i), Averages));
+                Days.Add(new DayViewModel(_today.AddDays(-i)));
             }
             _selectedIndex = Days.Count - 1;
         }
@@ -51,7 +51,8 @@ namespace StepCounter.ViewModels
         /// <summary>Дни от самого старого к сегодняшнему (сегодня — последний).</summary>
         public ObservableCollection<DayViewModel> Days { get; } = new ObservableCollection<DayViewModel>();
 
-        public AveragesViewModel Averages { get; } = new AveragesViewModel();
+        /// <summary>База истории (null, пока не открыта).</summary>
+        public StepDatabase Database => _database;
 
         public int SelectedIndex
         {
@@ -168,7 +169,6 @@ namespace StepCounter.ViewModels
 
             await LoadDayAsync(TodayItem);
             await LoadAroundSelectedAsync();
-            await LoadAveragesAsync();
             CheckGoal();
         }
 
@@ -193,7 +193,6 @@ namespace StepCounter.ViewModels
             }
             await LoadDayAsync(TodayItem);
             await LoadAroundSelectedAsync();
-            await LoadAveragesAsync();
             CheckGoal();
         }
 
@@ -257,7 +256,7 @@ namespace StepCounter.ViewModels
             // поэтому после изменений выбираем день заново по дате.
             for (DateTime date = _today.AddDays(1); date <= today; date = date.AddDays(1))
             {
-                Days.Add(new DayViewModel(date, Averages));
+                Days.Add(new DayViewModel(date));
                 Days.RemoveAt(0);
             }
             _today = today;
@@ -323,27 +322,6 @@ namespace StepCounter.ViewModels
 
             int pending = day.IsToday && _source != null ? _source.PendingStepsToday : 0;
             day.Apply(summary, segments, pending);
-        }
-
-        async Task LoadAveragesAsync()
-        {
-            if (_database == null)
-            {
-                return;
-            }
-
-            DateTime today = DateTime.Today;
-            int fromDay = DayKey.From(today.AddDays(-AveragesViewModel.YearDays));
-            int toDay = DayKey.From(today.AddDays(-1));
-            try
-            {
-                List<DaySummary> days = await Task.Run(() => _database.GetDays(fromDay, toDay));
-                Averages.Apply(days, today);
-            }
-            catch (Exception ex)
-            {
-                StatusText = "Ошибка чтения базы: " + ex.Message;
-            }
         }
 
         void CheckGoal()

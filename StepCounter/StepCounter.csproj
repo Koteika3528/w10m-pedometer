@@ -90,7 +90,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="App.xaml.cs" />
-    <Compile Include="Controls\HourlyChart.cs" />
+    <Compile Include="Controls\BarChart.cs" />
     <Compile Include="Converters\BoolToVisibilityConverter.cs" />
     <Compile Include="Data\ActivitySegment.cs" />
     <Compile Include="Data\DayKey.cs" />
@@ -104,11 +104,11 @@
     <Compile Include="Services\IStepSource.cs" />
     <Compile Include="Services\Motivation.cs" />
     <Compile Include="Services\StepDetector.cs" />
-    <Compile Include="ViewModels\AveragesViewModel.cs" />
     <Compile Include="ViewModels\DayViewModel.cs" />
-    <Compile Include="ViewModels\HourBar.cs" />
+    <Compile Include="ViewModels\ChartBar.cs" />
     <Compile Include="ViewModels\MainViewModel.cs" />
     <Compile Include="ViewModels\ObservableObject.cs" />
+    <Compile Include="ViewModels\StatisticsViewModel.cs" />
     <Compile Include="Controls\CelebrationOverlay.xaml.cs">
       <DependentUpon>CelebrationOverlay.xaml</DependentUpon>
     </Compile>
@@ -117,6 +117,9 @@
     </Compile>
     <Compile Include="Views\SettingsPage.xaml.cs">
       <DependentUpon>SettingsPage.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Views\StatisticsPage.xaml.cs">
+      <DependentUpon>StatisticsPage.xaml</DependentUpon>
     </Compile>
   </ItemGroup>
   <ItemGroup>
@@ -148,6 +151,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Views\SettingsPage.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Views\StatisticsPage.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
