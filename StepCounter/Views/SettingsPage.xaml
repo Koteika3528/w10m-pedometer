@@ -35,6 +35,20 @@
                      InputScope="Number"
                      Margin="0,0,0,12" />
 
+            <ToggleSwitch x:Name="BackgroundSwitch"
+                          Header="Работать при выключенном экране"
+                          OffContent="выключено"
+                          OnContent="включено"
+                          Margin="0,8,0,0"
+                          Toggled="OnBackgroundToggled" />
+            <TextBlock Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                       TextWrapping="Wrap"
+                       Text="Нужно, если у телефона нет встроенного шагомера: шаги по акселерометру будут считаться и под экраном блокировки. Для этого приложение использует местоположение (по сетям, без GPS) и тратит больше заряда. При нехватке памяти или в режиме экономии заряда система всё равно может остановить приложение." />
+            <HyperlinkButton Content="Разрешить работу в фоне в экономии заряда"
+                             NavigateUri="ms-settings:batterysaver-usagedetails"
+                             Margin="0,4,0,12" />
+
             <TextBlock x:Name="ErrorText"
                        Style="{StaticResource BodyTextBlockStyle}"
                        Foreground="Red"

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using StepCounter.Data;
 using StepCounter.Services;
+using Windows.ApplicationModel.ExtendedExecution;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 
@@ -17,6 +18,7 @@ namespace StepCounter.ViewModels
         readonly CoreDispatcher _dispatcher;
         readonly DispatcherTimer _clockTimer;
         readonly DispatcherTimer _syncTimer;
+        readonly BackgroundKeeper _backgroundKeeper = new BackgroundKeeper();
 
         StepDatabase _database;
         IStepSource _source;
@@ -28,6 +30,7 @@ namespace StepCounter.ViewModels
         string _sourceText = "Поиск датчиков…";
         string _statusText;
         bool _isAccessHintVisible;
+        string _backgroundText;
 
         public MainViewModel(CoreDispatcher dispatcher)
         {
@@ -39,6 +42,8 @@ namespace StepCounter.ViewModels
             // Шаги приходят часто — синхронизируемся с базой не чаще раза в несколько секунд.
             _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
             _syncTimer.Tick += OnSyncTimerTick;
+
+            _backgroundKeeper.Revoked += OnBackgroundRevoked;
 
             _today = DateTime.Today;
             for (int i = DaysBack - 1; i >= 0; i--)
@@ -83,6 +88,13 @@ namespace StepCounter.ViewModels
         {
             get { return _isAccessHintVisible; }
             private set { SetProperty(ref _isAccessHintVisible, value); }
+        }
+
+        /// <summary>Состояние работы в фоне (пусто, если режим выключен).</summary>
+        public string BackgroundText
+        {
+            get { return _backgroundText; }
+            private set { SetProperty(ref _backgroundText, value); }
         }
 
         /// <summary>Сегодня выполнена норма шагов (аргумент — шаги). Вызывается в UI-потоке один раз за день.</summary>
@@ -138,7 +150,47 @@ namespace StepCounter.ViewModels
             }
 
             _clockTimer.Start();
+            await UpdateBackgroundModeAsync();
             await SyncAndReloadAsync();
+        }
+
+        /// <summary>
+        /// Включает или выключает работу в фоне. Вызывается из UI-потока, пока приложение на экране.
+        /// Возвращает null при успехе или текст ошибки (тогда настройка выключается).
+        /// </summary>
+        public async Task<string> SetKeepRunningInBackgroundAsync(bool enabled)
+        {
+            AppSettings.KeepRunningInBackground = enabled;
+            string error = await UpdateBackgroundModeAsync();
+            if (error != null)
+            {
+                AppSettings.KeepRunningInBackground = false;
+            }
+            return error;
+        }
+
+        async Task<string> UpdateBackgroundModeAsync()
+        {
+            if (!AppSettings.KeepRunningInBackground)
+            {
+                _backgroundKeeper.Stop();
+                BackgroundText = null;
+                return null;
+            }
+
+            string error = await _backgroundKeeper.StartAsync();
+            BackgroundText = error ?? "Работает в фоне, в том числе при выключенном экране";
+            return error;
+        }
+
+        void OnBackgroundRevoked(object sender, ExtendedExecutionRevokedReason reason)
+        {
+            var ignored = _dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            {
+                BackgroundText = reason == ExtendedExecutionRevokedReason.SystemPolicy
+                    ? "Система остановила работу в фоне (экономия заряда или нехватка памяти). Включится снова при открытии."
+                    : null;
+            });
         }
 
         /// <summary>Забирает новые шаги из датчика и обновляет экран. Вызывается из UI-потока.</summary>
@@ -209,6 +261,8 @@ namespace StepCounter.ViewModels
             {
                 _source?.Start();
                 CheckDateChanged();
+                // Если система отозвала работу в фоне — запрашиваем снова, пока приложение на экране.
+                await UpdateBackgroundModeAsync();
                 await SyncAndReloadAsync();
             });
         }

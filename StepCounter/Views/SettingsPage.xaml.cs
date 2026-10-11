@@ -8,6 +8,8 @@ namespace StepCounter.Views
 {
     public sealed partial class SettingsPage : Page
     {
+        bool _isLoadingSwitch;
+
         public SettingsPage()
         {
             InitializeComponent();
@@ -19,6 +21,28 @@ namespace StepCounter.Views
             GoalBox.Text = AppSettings.DailyGoal.ToString(CultureInfo.InvariantCulture);
             StepLengthBox.Text = AppSettings.StepLengthCm.ToString(CultureInfo.InvariantCulture);
             WeightBox.Text = AppSettings.WeightKg.ToString(CultureInfo.InvariantCulture);
+
+            _isLoadingSwitch = true;
+            BackgroundSwitch.IsOn = AppSettings.KeepRunningInBackground;
+            _isLoadingSwitch = false;
+        }
+
+        async void OnBackgroundToggled(object sender, RoutedEventArgs e)
+        {
+            if (_isLoadingSwitch)
+            {
+                return;
+            }
+
+            ErrorText.Visibility = Visibility.Collapsed;
+            string error = await App.ViewModel.SetKeepRunningInBackgroundAsync(BackgroundSwitch.IsOn);
+            if (error != null)
+            {
+                ShowError(error);
+                _isLoadingSwitch = true;
+                BackgroundSwitch.IsOn = false;
+                _isLoadingSwitch = false;
+            }
         }
 
         void OnSaveClick(object sender, RoutedEventArgs e)

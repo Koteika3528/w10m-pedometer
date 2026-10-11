@@ -100,6 +100,7 @@
     <Compile Include="Services\AccelerometerStepSource.cs" />
     <Compile Include="Services\ActivityMath.cs" />
     <Compile Include="Services\AppSettings.cs" />
+    <Compile Include="Services\BackgroundKeeper.cs" />
     <Compile Include="Services\HardwarePedometerSource.cs" />
     <Compile Include="Services\IStepSource.cs" />
     <Compile Include="Services\Motivation.cs" />

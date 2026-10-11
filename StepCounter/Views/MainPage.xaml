@@ -41,6 +41,9 @@
                        FontWeight="SemiBold" />
             <TextBlock Text="{x:Bind ViewModel.SourceText, Mode=OneWay}"
                        Style="{StaticResource CaptionMutedStyle}" />
+            <TextBlock Text="{x:Bind ViewModel.BackgroundText, Mode=OneWay}"
+                       Style="{StaticResource CaptionMutedStyle}"
+                       TextWrapping="Wrap" />
             <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
                        Style="{StaticResource CaptionTextBlockStyle}"
                        Foreground="{ThemeResource SystemControlForegroundAccentBrush}"

@@ -53,5 +53,7 @@
   <Capabilities>
     <!-- Доступ к встроенному шагомеру / датчику активности (Motion data) -->
     <DeviceCapability Name="activity" />
+    <!-- Нужно для работы при выключенном экране (ExtendedExecution: LocationTracking) -->
+    <DeviceCapability Name="location" />
   </Capabilities>
 </Package>

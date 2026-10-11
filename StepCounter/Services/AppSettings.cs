@@ -34,6 +34,13 @@ namespace StepCounter.Services
             set => Set(nameof(LastCelebratedDay), value);
         }
 
+        /// <summary>Не давать системе замораживать приложение при выключенном экране.</summary>
+        public static bool KeepRunningInBackground
+        {
+            get => Get(nameof(KeepRunningInBackground), 0) != 0;
+            set => Set(nameof(KeepRunningInBackground), value ? 1 : 0);
+        }
+
         static int Get(string key, int defaultValue)
         {
             object value;
