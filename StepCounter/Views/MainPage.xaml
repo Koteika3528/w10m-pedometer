@@ -1,0 +1,121 @@
+<Page
+    x:Class="StepCounter.Views.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:StepCounter.ViewModels"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.BottomAppBar>
+        <CommandBar>
+            <AppBarButton Icon="Refresh" Label="обновить" Click="OnRefreshClick" />
+            <AppBarButton Icon="Setting" Label="настройки" Click="OnSettingsClick" />
+        </CommandBar>
+    </Page.BottomAppBar>
+
+    <Grid Padding="12,8,12,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="ШАГОМЕР"
+                   Style="{StaticResource CaptionTextBlockStyle}"
+                   FontWeight="SemiBold" />
+
+        <!-- Шаги за сегодня -->
+        <StackPanel Grid.Row="1" Margin="0,8,0,0">
+            <TextBlock Text="{x:Bind ViewModel.TodayStepsText, Mode=OneWay}"
+                       FontSize="72"
+                       FontWeight="Light" />
+            <TextBlock Text="{x:Bind ViewModel.GoalText, Mode=OneWay}"
+                       Style="{StaticResource BodyTextBlockStyle}"
+                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+            <ProgressBar Value="{x:Bind ViewModel.ProgressValue, Mode=OneWay}"
+                         Maximum="100"
+                         Height="8"
+                         Margin="0,12,0,0" />
+        </StackPanel>
+
+        <!-- Расстояние и калории -->
+        <Grid Grid.Row="2" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="{x:Bind ViewModel.DistanceText, Mode=OneWay}"
+                           Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock Text="расстояние"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+            </StackPanel>
+            <StackPanel Grid.Column="1">
+                <TextBlock Text="{x:Bind ViewModel.CaloriesText, Mode=OneWay}"
+                           Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock Text="калории"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Состояние датчика -->
+        <StackPanel Grid.Row="3" Margin="0,16,0,0">
+            <TextBlock Text="{x:Bind ViewModel.SourceText, Mode=OneWay}"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+            <TextBlock Text="{x:Bind ViewModel.StatusText, Mode=OneWay}"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource SystemControlForegroundAccentBrush}" />
+            <HyperlinkButton Content="Разрешить доступ к данным о движении"
+                             NavigateUri="ms-settings:privacy-motion"
+                             Visibility="{x:Bind ViewModel.IsAccessHintVisible, Mode=OneWay, Converter={StaticResource BoolToVisibility}}" />
+        </StackPanel>
+
+        <TextBlock Grid.Row="4"
+                   Text="последние 7 дней"
+                   Style="{StaticResource SubtitleTextBlockStyle}"
+                   Margin="0,16,0,4" />
+
+        <ListView Grid.Row="5"
+                  ItemsSource="{x:Bind ViewModel.History}"
+                  SelectionMode="None">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Padding" Value="0" />
+                </Style>
+            </ListView.ItemContainerStyle>
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="vm:DayStepsItem">
+                    <Grid Padding="0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="{x:Bind DateText}"
+                                   Style="{StaticResource BodyTextBlockStyle}" />
+                        <TextBlock Grid.Column="1"
+                                   Text="{x:Bind StepsText, Mode=OneWay}"
+                                   Style="{StaticResource BodyTextBlockStyle}" />
+                        <ProgressBar Grid.Row="1"
+                                     Grid.ColumnSpan="2"
+                                     Value="{x:Bind Percent, Mode=OneWay}"
+                                     Maximum="100"
+                                     Margin="0,4,0,0" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</Page>

@@ -1,0 +1,44 @@
+<Page
+    x:Class="StepCounter.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.BottomAppBar>
+        <CommandBar>
+            <AppBarButton Icon="Save" Label="сохранить" Click="OnSaveClick" />
+        </CommandBar>
+    </Page.BottomAppBar>
+
+    <ScrollViewer>
+        <StackPanel Padding="12,8,12,12">
+            <TextBlock Text="ШАГОМЕР"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       FontWeight="SemiBold" />
+            <TextBlock Text="настройки"
+                       Style="{StaticResource HeaderTextBlockStyle}"
+                       Margin="0,0,0,16" />
+
+            <TextBox x:Name="GoalBox"
+                     Header="Цель на день, шагов"
+                     InputScope="Number"
+                     Margin="0,0,0,12" />
+            <TextBox x:Name="StepLengthBox"
+                     Header="Длина шага, см"
+                     InputScope="Number"
+                     Margin="0,0,0,12" />
+            <TextBox x:Name="WeightBox"
+                     Header="Вес, кг (для подсчёта калорий)"
+                     InputScope="Number"
+                     Margin="0,0,0,12" />
+
+            <TextBlock x:Name="ErrorText"
+                       Style="{StaticResource BodyTextBlockStyle}"
+                       Foreground="Red"
+                       Visibility="Collapsed" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>
