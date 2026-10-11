@@ -56,7 +56,7 @@ namespace StepCounter.ViewModels
                     return "вчера";
                 }
                 string format = Date.Year == today.Year ? "dddd, d MMMM" : "d MMMM yyyy";
-                return Date.ToString(format, CultureInfo.CurrentCulture).ToLower(CultureInfo.CurrentCulture);
+                return CultureInfo.CurrentCulture.TextInfo.ToLower(Date.ToString(format, CultureInfo.CurrentCulture));
             }
         }
 
